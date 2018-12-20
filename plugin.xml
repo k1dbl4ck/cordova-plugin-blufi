@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<plugin xmlns="http://www.phonegap.com/ns/plugins/1.0" id="za.co.clearcell.blufi" version="0.0.1">
+
+  <name>Cordova Plugin BluFi</name>
+
+  <engines>
+    <engine name="cordova" version=">=3.4.0"/>
+  </engines>
+
+  <asset src="www/plugin.js" target="js/plugin.js"/>
+
+  <js-module src="www/plugin.js" name="gatt">
+    <clobbers target="cordova.plugins.blufi" />
+  </js-module>
+
+  <platform name="android">
+   
+    <config-file target="res/xml/config.xml" parent="/*">
+      <feature name="Gatt">
+        <param name="android-package" value="za.co.clearcell.blufi.Gatt"/>
+      </feature>
+    </config-file>
+
+    <source-file src="src/android/Gatt.java" target-dir="src/za/co/clearcell/blufi"/>
+    <framework src="src/android/build.gradle" custom="true" type="gradleReference" />
+    <resource-file src="lib/android/apptools-release.aar" target="libs/apptools-release.aar" />
+    <resource-file src="lib/android/blufilibrary-release.aar" target="libs/blufilibrary-release.aar" />
+
+  </platform>
+
+  <platform name="ios">
+
+    <config-file target="config.xml" parent="/widget">
+      <feature name="GATT">
+        <param name="ios-package" value="Gatt" />
+      </feature>
+    </config-file>
+
+    <header-file src="src/ios/Gatt.h" target-dir="BluFi"/>
+    <source-file src="src/ios/Gatt.m" target-dir="BluFi"/>
+  </platform>
+
+</plugin>

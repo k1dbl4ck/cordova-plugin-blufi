@@ -1,0 +1,18 @@
+repositories{    
+  jcenter()
+  flatDir {
+      dirs 'src/main/libs'
+   }
+}
+
+dependencies {
+   compile(name:'apptools-release', ext:'aar')
+   compile(name:'blufilibrary-release', ext:'aar')
+}
+
+android {
+  packagingOptions {
+    exclude 'META-INF/NOTICE'
+    exclude 'META-INF/LICENSE'
+  }
+}
