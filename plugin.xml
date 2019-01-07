@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<plugin xmlns="http://www.phonegap.com/ns/plugins/1.0" id="za.co.clearcell.blufi" version="0.0.1">
+<plugin xmlns="http://www.phonegap.com/ns/plugins/1.0" id="cordova-plugin-blufi" version="0.0.1">
 
   <name>Cordova Plugin BluFi</name>
 
@@ -21,7 +21,19 @@
       </feature>
     </config-file>
 
-    <source-file src="src/android/Gatt.java" target-dir="src/za/co/clearcell/blufi"/>
+    <config-file target="AndroidManifest.xml" parent="/*">
+       <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+       <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    </config-file>
+
+    <source-file src="src/android/Configure.java" target-dir="java/za/co/clearcell/blufi"/>
+    <source-file src="src/android/Constants.java" target-dir="java/za/co/clearcell/blufi"/>
+    <source-file src="src/android/Gatt.java" target-dir="java/za/co/clearcell/blufi"/>
+    <source-file src="src/android/Permissions.java" target-dir="java/za/co/clearcell/blufi"/>
+    <source-file src="src/android/Response.java" target-dir="java/za/co/clearcell/blufi"/>
+    <source-file src="src/android/Search.java" target-dir="java/za/co/clearcell/blufi"/>
+    <source-file src="src/android/SearchResultEvent.java" target-dir="java/za/co/clearcell/blufi"/>
+
     <framework src="src/android/build.gradle" custom="true" type="gradleReference" />
     <resource-file src="lib/android/apptools-release.aar" target="libs/apptools-release.aar" />
     <resource-file src="lib/android/blufilibrary-release.aar" target="libs/blufilibrary-release.aar" />
@@ -29,15 +41,16 @@
   </platform>
 
   <platform name="ios">
+  		<config-file target="config.xml" parent="/*">
+			<feature name="Gatt">
+				<param name="ios-package" value="Gatt" />
+			</feature>
+		</config-file> 
+		<source-file src="src/ios/Gatt.swift" />
+    <source-file src="src/ios/BluFiManager.swift" />
+    <source-file src="src/ios/BluFiParameter.swift" />
+    <source-file src="src/ios/DHKeyExchange.swift" />
 
-    <config-file target="config.xml" parent="/widget">
-      <feature name="GATT">
-        <param name="ios-package" value="Gatt" />
-      </feature>
-    </config-file>
-
-    <header-file src="src/ios/Gatt.h" target-dir="BluFi"/>
-    <source-file src="src/ios/Gatt.m" target-dir="BluFi"/>
   </platform>
 
 </plugin>
