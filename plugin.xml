@@ -8,6 +8,10 @@
   </engines>
 
   <asset src="www/plugin.js" target="js/plugin.js"/>
+   
+  <dependency id="cordova-plugin-add-swift-support" version="1.7.2"/>
+  <preference name="UseSwiftLanguageVersion" value="4" />
+
 
   <js-module src="www/plugin.js" name="gatt">
     <clobbers target="cordova.plugins.blufi" />
@@ -41,16 +45,19 @@
   </platform>
 
   <platform name="ios">
-  		<config-file target="config.xml" parent="/*">
-			<feature name="Gatt">
-				<param name="ios-package" value="Gatt" />
-			</feature>
+    <preference name="UseSwiftLanguageVersion" value="4" />
+  	<config-file target="config.xml" parent="/*">
+		<feature name="Gatt">
+		 	<param name="ios-package" value="Gatt" />
+		</feature>
 		</config-file> 
+    <framework src="AwaitKit"  type="podspec" spec="5.0.0" />
+    <framework src="BigInt"  type="podspec" spec="3.1" />
+    <framework src="CryptoSwift"  type="podspec" spec="0.11.0" />
 		<source-file src="src/ios/Gatt.swift" />
     <source-file src="src/ios/BluFiManager.swift" />
-    <source-file src="src/ios/BluFiParameter.swift" />
-    <source-file src="src/ios/DHKeyExchange.swift" />
-
+		<source-file src="src/ios/BluFiParameter.swift" />
+		<source-file src="src/ios/DHKeyExchange.swift" />
   </platform>
 
 </plugin>

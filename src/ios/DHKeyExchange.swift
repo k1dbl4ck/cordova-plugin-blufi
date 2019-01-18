@@ -1,12 +1,3 @@
-//
-//  DHKeyExchange.swift
-//  BluFiExample
-//
-//  Created by Tuan PM on 9/10/18.
-//  Copyright © 2018 Tuan PM. All rights reserved.
-//
-
-
 import Foundation
 import BigInt
 

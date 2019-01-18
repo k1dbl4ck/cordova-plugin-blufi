@@ -1,7 +1,7 @@
 {
   "name": "cordova-plugin-blufi",
   "version": "0.0.1",
-  "description": "A Cordova plugin that enables Wi-Fi credential authentication and arbitrary JSON payload data passing to embedded devices running Espressif firmware running in GATT mode",
+  "description": "A Cordova plugin that enabled communication with Espressif BluFi compatible firmware",
   "cordova": {
     "id": "cordova-plugin-blufi",
     "platforms": [
@@ -19,11 +19,11 @@
     "ecosystem:cordova",
     "cordova-android",
     "cordova-ios",
-    "espressif", 
-    "gatt", 
+    "espressif",
+    "gatt",
     "blufi"
   ],
-  "author": "werner@clearcell.co.za",
+  "author": "k1dbl4ck@gmail.com",
   "license": "Unlicense",
   "bugs": {
     "url": "https://gitlab.com/k1dbl4ck/cordova-plugin-blufi/issues"

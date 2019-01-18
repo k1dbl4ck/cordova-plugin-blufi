@@ -1,11 +1,3 @@
-//
-//  BlufiParameter.swift
-//  BluFi
-//
-//  Created by Tuan PM on 9/1/18.
-//  Copyright © 2018 Tuan PM. All rights reserved.
-//
-
 import Foundation
 
 public struct WiFiEntry {
@@ -226,3 +218,4 @@ class CRC {
     }
     
 }
+

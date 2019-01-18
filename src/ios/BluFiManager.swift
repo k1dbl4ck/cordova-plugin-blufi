@@ -1,16 +1,8 @@
-//
-//  BluFiManager.swift
-//  BluFiExample
-//
-//  Created by Tuan PM on 9/10/18.
-//  Copyright © 2018 Tuan PM. All rights reserved.
-//
-
-
 import Foundation
 import CryptoSwift
 import PromiseKit
 import AwaitKit
+import CoreBluetooth
 
 extension Data {
     struct HexEncodingOptions: OptionSet {
@@ -35,31 +27,31 @@ struct BluFiError: Error {
     }
 }
 
-public final class BluFiMangager: NSObject {
+public final class BluFiManager: NSObject, CBPeripheralDelegate {
     
-   
+    
     private let DH_P = "cf5cf5c38419a724957ff5dd323b9c45c3cdd261eb740f69aa94b8bb1a5c9640" +
         "9153bd76b24222d03274e4725a5406092e9e82e9135c643cae98132b0d95f7d6" +
         "5347c68afc1e677da90e51bbab5f5cf429c291b4ba39c6b2dc5e8c7231e46aa7" +
     "728e87664532cdf547be20c9a3fa8342be6e34371a27c06f7dc0edddd2f86373"
+    
     private let DH_G = "2"
     
     private let DIRECTION_INPUT = 1
     private let DIRECTION_OUTPUT = 0
-    private let WRITE_TIMEOUT_SECOND = 60
+    private let WRITE_TIMEOUT_SECOND = 30
     private let DEFAULT_PACKAGE_LENGTH = 80
     private let PACKAGE_HEADER_LENGTH = 4
     
-    private var writeToBluetooth: ((Data) -> Void)?
     private let ackSem = DispatchSemaphore(value: 0)
     private let readSem = DispatchSemaphore(value: 0)
     private let bleStateSem = DispatchSemaphore(value: 0)
     private let writeLock = DispatchSemaphore(value: 1)
     private var dataRead: [UInt8] = []
-    //    private let dispatchGroup = DispatchGroup()
-    private var sendSequence: Int = 0
+    
+    private var sendSequence: Int = -1
     private var recvSequence: Int = -1
-    private var ackSequence: Int = -1
+    
     private var mPackageLengthLimit: Int
     private var requireAck: Bool = false
     private var mNotiData: BlufiNotiData? = nil
@@ -68,14 +60,18 @@ public final class BluFiMangager: NSObject {
     private var mEncrypted = false
     private var mChecksum = true
     
-    private func generateSeq() -> Int {
-        let seq = sendSequence
+    private var device: CBPeripheral?
+    private var txCharacteristic:CBCharacteristic?
+    private var rxCharacteristic:CBCharacteristic?
+    
+    private func generateSendSequence() -> Int {
         sendSequence += 1
-        return seq
+        print("GENERATE SEND SEQUENCE RESULT : \(sendSequence)")
+        return sendSequence
     }
-    private func getSeq() -> Int {
-//        let saveSeq = recvSequence
+    private func generateReceiveSequence() -> Int {
         recvSequence += 1
+        print("GENERATE RECV SEQUENCE RESULT : \(recvSequence)")
         return recvSequence
     }
     
@@ -159,27 +155,26 @@ public final class BluFiMangager: NSObject {
         return byteList
     }
     
-    
+    //DEBUG ONLY - uncomment sequence reset
     private func resetSeq() {
-        sendSequence = 0
-        recvSequence = -1
+        // sendSequence = -1
+        // recvSequence = -1
     }
     
     private func read(_ timeout_sec: Int) -> Promise<BlufiNotiData> {
         return Promise {
             let blufiData: BlufiNotiData = BlufiNotiData()
             while true {
-                print("read")
                 let timeout = DispatchTime.now() + .seconds(timeout_sec)
                 if readSem.wait(timeout: timeout) != .success {
-                    print("read timeout")
                     return $0.reject(BluFiError("Timeout"))
                 }
+                
                 if dataRead.count < 4 {
                     return $0.reject(BluFiError("Invalid response data"))
                 }
-                let parse = parseNotification(data: dataRead, notification: blufiData)
                 
+                let parse = parseNotification(data: dataRead, notification: blufiData)
                 if parse < 0 {
                     return $0.reject(BluFiError("Error parse data"))
                 } else if parse == 0 {
@@ -197,8 +192,7 @@ public final class BluFiMangager: NSObject {
             }
             let needWrite = Data.init(bytes: UnsafePointer<UInt8>(data), count: data.count)
             writeLock.wait()
-            writeToBluetooth?(needWrite)
-//            activePeripheral?.writeValue(needWrite, for: dataOutCharacteristics!, type: .withResponse)
+            writeToBluetooth(data:needWrite)
             writeLock.signal()
             return $0.resolve(true, nil)
         }
@@ -239,7 +233,7 @@ public final class BluFiMangager: NSObject {
                                                            direction: self.DIRECTION_OUTPUT,
                                                            requireAck: self.requireAck,
                                                            frag: true)
-                    let sequence = self.generateSeq()
+                    let sequence = self.generateSendSequence()
                     let totleLen = dataRemain.count
                     let totleLen1 = totleLen & 0xff
                     let totleLen2 = (totleLen >> 8) & 0xff
@@ -263,46 +257,24 @@ public final class BluFiMangager: NSObject {
                                                            direction: self.DIRECTION_OUTPUT,
                                                            requireAck: self.requireAck,
                                                            frag: false)
-                    let sequence = self.generateSeq()
+                    let sequence = self.generateSendSequence()
                     
                     let postBytes = self.getPostBytes(type: type,
                                                       frameCtrl: frameCtrl,
                                                       sequence: sequence,
                                                       dataLength: dataRemain.count,
                                                       data: dataRemain)
-                    return try await(self.write(postBytes, timeoutSec, needResponse))
+                    let result = try await(self.write(postBytes, timeoutSec, needResponse))
+                    return result;
                 }
             } while true
         }
         
     }
     
-    private func getAckSeq(_ bluFiData: BlufiNotiData) -> Int {
-        let pkgType = bluFiData.getPkgType()
-        let subType = bluFiData.getSubType()
-        let data = bluFiData.getDataArray()
-        if (data.count < 1) {
-            return -1
-        }
-        if pkgType == Type.Ctrl.PACKAGE_VALUE &&
-            subType == Type.Ctrl.SUBTYPE_ACK {
-            return Int(data[0] & 0xff)
-        }
-        return -1
-    }
-    
-    private func validPackage(_ blufiData: BlufiNotiData, _ type: Int, _ subType: Int) -> Bool {
-        let pkgType = blufiData.getPkgType()
-        let sType = blufiData.getSubType()
-        if pkgType != type || subType != sType {
-            return false
-        }
-        return true
-    }
     
     public func negotiate() -> Promise<Bool> {
         return async {
-            self.resetSeq()
             /* 1. Write package length */
             let type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_NEG)
             self.secDHKeys = DHKeyExchange.genDHExchangeKeys(generator: self.DH_G, primeNumber: self.DH_P)
@@ -385,7 +357,7 @@ public final class BluFiMangager: NSObject {
         return async {
             let type = self.getTypeValue(type: Type.Ctrl.PACKAGE_VALUE, subtype: Type.Ctrl.SUBTYPE_GET_WIFI_LIST)
             let respData = try await(self.writeFrame(type, [], self.WRITE_TIMEOUT_SECOND, true))
-    
+            
             if !self.validPackage(respData, Type.Data.PACKAGE_VALUE, Type.Data.SUBTYPE_WIFI_LIST) {
                 self.resetSeq()
                 throw BluFiError("Invalid response for getWiFiScanList")
@@ -414,6 +386,7 @@ public final class BluFiMangager: NSObject {
         return async {
             let type = self.getTypeValue(type: Type.Ctrl.PACKAGE_VALUE, subtype: Type.Ctrl.SUBTYPE_GET_VERSION)
             let respData = try await(self.writeFrame(type, [], self.WRITE_TIMEOUT_SECOND, true))
+            
             if !self.validPackage(respData, Type.Data.PACKAGE_VALUE, Type.Data.SUBTYPE_VERSION) {
                 self.resetSeq()
                 throw BluFiError("Invalid response for getDeviceVersion")
@@ -438,9 +411,15 @@ public final class BluFiMangager: NSObject {
         }
     }
     
+    
+    
     public func setWiFiSta(_ ssid: String, _ password: String) -> Promise<[UInt8]> {
         return async {
-            var type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_STA_WIFI_SSID)
+            
+            var  type = self.getTypeValue(type: Type.Ctrl.PACKAGE_VALUE, subtype: Type.Ctrl.SUBTYPE_SET_OP_MODE)
+            _ = try await(self.writeFrame(type, [UInt8(OP_MODE.STA)], self.WRITE_TIMEOUT_SECOND, false))
+            
+            type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_STA_WIFI_SSID)
             _ = try await(self.writeFrame(type, [UInt8](ssid.utf8), self.WRITE_TIMEOUT_SECOND, false))
             
             type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_STA_WIFI_PASSWORD)
@@ -461,39 +440,242 @@ public final class BluFiMangager: NSObject {
         }
     }
     
-    public init(writeToBluetooth: @escaping (Data) -> Void) {
-        self.writeToBluetooth = writeToBluetooth
-        self.mPackageLengthLimit = DEFAULT_PACKAGE_LENGTH
-        super.init()
+    
+    public func setWiFiAP(_ ssid: String, _ password: String, _ channel: String, _ maxConnections: String, _ security: String) -> Promise<[UInt8]> {
+        return async {
+            
+            var  type = self.getTypeValue(type: Type.Ctrl.PACKAGE_VALUE, subtype: Type.Ctrl.SUBTYPE_SET_OP_MODE)
+            _ = try await(self.writeFrame(type, [UInt8(OP_MODE.SOFTAP)], self.WRITE_TIMEOUT_SECOND, false))
+            
+            
+            type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_WIFI_SSID)
+            _ = try await(self.writeFrame(type, [UInt8](ssid.utf8), self.WRITE_TIMEOUT_SECOND, false))
+            
+            if security != "open" {
+                type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_WIFI_PASSWORD)
+                _ = try await(self.writeFrame(type, [UInt8](password.utf8), self.WRITE_TIMEOUT_SECOND, false))
+            }
+            
+            if Int(channel)! > 0 {
+                type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_CHANNEL)
+                _ = try await(self.writeFrame(type, [UInt8(channel)!], self.WRITE_TIMEOUT_SECOND, false))
+            }
+            
+            if Int(maxConnections)! > 0 {
+                type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_MAX_CONNECTION_COUNT)
+                _ = try await(self.writeFrame(type, [UInt8(maxConnections)!], self.WRITE_TIMEOUT_SECOND, false))
+            }
+            
+            
+            var softAPSecurity = SOFTAP_SECURITY.OPEN
+            switch security {
+            case "open" : softAPSecurity = SOFTAP_SECURITY.OPEN
+            case "wpa-psk" : softAPSecurity = SOFTAP_SECURITY.WPA
+            case "wpa2-psk" : softAPSecurity = SOFTAP_SECURITY.WPA2
+            case "wpa-wap2-psk" : softAPSecurity = SOFTAP_SECURITY.WPA_WPA2
+            default:softAPSecurity = SOFTAP_SECURITY.OPEN
+            }
+            
+            type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_AUTH_MODE)
+            _ = try await(self.writeFrame(type, [UInt8(softAPSecurity)], self.WRITE_TIMEOUT_SECOND, false))
+            
+            
+            type = self.getTypeValue(type: Type.Ctrl.PACKAGE_VALUE, subtype: Type.Ctrl.SUBTYPE_GET_WIFI_STATUS)
+            let respData = try await(self.writeFrame(type, [UInt8](password.utf8), self.WRITE_TIMEOUT_SECOND, true))
+            
+            if !self.validPackage(respData, Type.Data.PACKAGE_VALUE, Type.Data.SUBTYPE_WIFI_CONNECTION_STATE) {
+                self.resetSeq()
+                throw BluFiError("Invalid response for WiFi status")
+            }
+            let dataArray = respData.getDataArray()
+            if dataArray.count < 3 {
+                throw BluFiError("Invalid data size")
+            }
+            return respData.getDataArray()
+        }
     }
     
- 
+    
+    public func setWifiStaSoftAP(_ sta_ssid:String, _ sta_password:String, _ ap_ssid:String, _ ap_password:String, _ ap_channel:String, _ ap_maxConnections:String, _ ap_security:String) -> Promise<[UInt8]> {
+        return async {
+            
+            var  type = self.getTypeValue(type: Type.Ctrl.PACKAGE_VALUE, subtype: Type.Ctrl.SUBTYPE_SET_OP_MODE)
+            _ = try await(self.writeFrame(type, [UInt8(OP_MODE.STASOFTAP)], self.WRITE_TIMEOUT_SECOND, false))
+            
+            type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_STA_WIFI_SSID)
+            _ = try await(self.writeFrame(type, [UInt8](sta_ssid.utf8), self.WRITE_TIMEOUT_SECOND, false))
+            
+            type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_STA_WIFI_PASSWORD)
+            _ = try await(self.writeFrame(type, [UInt8](sta_password.utf8), self.WRITE_TIMEOUT_SECOND, false))
+            
+            type = self.getTypeValue(type: Type.Ctrl.PACKAGE_VALUE, subtype: Type.Ctrl.SUBTYPE_CONNECT_WIFI)
+            _ = try await(self.writeFrame(type, [UInt8](sta_password.utf8), self.WRITE_TIMEOUT_SECOND, false))
+            
+            type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_WIFI_SSID)
+            _ = try await(self.writeFrame(type, [UInt8](ap_ssid.utf8), self.WRITE_TIMEOUT_SECOND, false))
+            
+            if ap_security != "open" {
+                type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_WIFI_PASSWORD)
+                _ = try await(self.writeFrame(type, [UInt8](ap_password.utf8), self.WRITE_TIMEOUT_SECOND, false))
+            }
+            
+            if Int(ap_channel)! > 0 {
+                type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_CHANNEL)
+                _ = try await(self.writeFrame(type, [UInt8(ap_channel)!], self.WRITE_TIMEOUT_SECOND, false))
+            }
+            
+            if Int(ap_maxConnections)! > 0 {
+                type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_MAX_CONNECTION_COUNT)
+                _ = try await(self.writeFrame(type, [UInt8(ap_maxConnections)!], self.WRITE_TIMEOUT_SECOND, false))
+            }
+            
+            var softAPSecurity = SOFTAP_SECURITY.OPEN
+            switch ap_security {
+            case "open" : softAPSecurity = SOFTAP_SECURITY.OPEN
+            case "wpa-psk" : softAPSecurity = SOFTAP_SECURITY.WPA
+            case "wpa2-psk" : softAPSecurity = SOFTAP_SECURITY.WPA2
+            case "wpa-wap2-psk" : softAPSecurity = SOFTAP_SECURITY.WPA_WPA2
+            default:softAPSecurity = SOFTAP_SECURITY.OPEN
+            }
+            
+            type = self.getTypeValue(type: Type.Data.PACKAGE_VALUE, subtype: Type.Data.SUBTYPE_SOFTAP_AUTH_MODE)
+            _ = try await(self.writeFrame(type, [UInt8(softAPSecurity)], self.WRITE_TIMEOUT_SECOND, false))
+            
+            
+            type = self.getTypeValue(type: Type.Ctrl.PACKAGE_VALUE, subtype: Type.Ctrl.SUBTYPE_GET_WIFI_STATUS)
+            let respData = try await(self.writeFrame(type, [UInt8](ap_password.utf8), self.WRITE_TIMEOUT_SECOND, true))
+            
+            if !self.validPackage(respData, Type.Data.PACKAGE_VALUE, Type.Data.SUBTYPE_WIFI_CONNECTION_STATE) {
+                self.resetSeq()
+                throw BluFiError("Invalid response for WiFi status")
+            }
+            let dataArray = respData.getDataArray()
+            if dataArray.count < 3 {
+                throw BluFiError("Invalid data size")
+            }
+            
+            return respData.getDataArray()
+        }
+    }
+    
+    
+    private func getAckSeq(_ bluFiData: BlufiNotiData) -> Int {
+        let pkgType = bluFiData.getPkgType()
+        let subType = bluFiData.getSubType()
+        let data = bluFiData.getDataArray()
+        if (data.count < 1) {
+            return -1
+        }
+        if pkgType == Type.Ctrl.PACKAGE_VALUE &&
+            subType == Type.Ctrl.SUBTYPE_ACK {
+            return Int(data[0] & 0xff)
+        }
+        return -1
+    }
+    
+    private func validPackage(_ blufiData: BlufiNotiData, _ type: Int, _ subType: Int) -> Bool {
+        let pkgType = blufiData.getPkgType()
+        let sType = blufiData.getSubType()
+        if pkgType != type || subType != sType {
+            return false
+        }
+        return true
+    }
+    
+    
+    
+    public init(peripheral:CBPeripheral, txCharacteristic:CBCharacteristic, rxCharacteristic:CBCharacteristic) {
+        
+        self.device = peripheral;
+        self.txCharacteristic =  txCharacteristic;
+        self.rxCharacteristic =  rxCharacteristic;
+        
+        self.mPackageLengthLimit = DEFAULT_PACKAGE_LENGTH
+        
+        super.init()
+        self.device!.delegate = self;
+        
+    }
+    
+    private func writeToBluetooth(data:Data) {
+        self.device!.writeValue(data, for: self.txCharacteristic!, type: CBCharacteristicWriteType.withResponse)
+    }
+    
+    
     public func readFromBluetooth(_ data: Data) -> Void {
         let resultBytes:[UInt8] = Array(UnsafeBufferPointer(start: (data as NSData).bytes.bindMemory(to: UInt8.self, capacity: data.count), count: data.count))
         dataRead = resultBytes
         readSem.signal()
     }
     
-//    public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-//        let data = characteristic.value
-//        let resultBytes:[UInt8] = Array(UnsafeBufferPointer(start: (data! as NSData).bytes.bindMemory(to: UInt8.self, capacity: data!.count), count: data!.count))
-//        dataRead = resultBytes
-//        readSem.signal()
-//    }
+    public func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        
+        if let error = error {
+            print("error: \(error)")
+            return
+        }
+        
+        let data = characteristic.value
+        
+        self.device!.readValue(for:self.rxCharacteristic!)
+        self.device!.setNotifyValue(true, for: self.rxCharacteristic!)
+        
+    }
+    
+    
+    public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        
+        if let error = error {
+            print("error: \(error)")
+            return
+        }
+        
+        let data = characteristic.value
+        
+        if data != nil && data!.count > 1 {
+            let resultBytes:[UInt8] = Array(UnsafeBufferPointer(start: (data! as NSData).bytes.bindMemory(to: UInt8.self, capacity: data!.count), count: data!.count))
+            dataRead = resultBytes
+            readSem.signal()
+        }
+    }
+    
+    
+    public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        
+        if let error = error {
+            print("error: \(error)")
+            return
+        }
+        
+        let data = characteristic.value
+        
+        if data != nil && data!.count > 1 {
+            let resultBytes:[UInt8] = Array(UnsafeBufferPointer(start: (data! as NSData).bytes.bindMemory(to: UInt8.self, capacity: data!.count), count: data!.count))
+            dataRead = resultBytes
+            readSem.signal()
+        }
+    }
     
     private func parseNotification(data: [UInt8], notification: BlufiNotiData) -> Int {
+        
+        
+        if data == nil {
+            print("parseNotification data is NIL - Returning -1")
+            return -1
+        }
+        
         if data.count < 4 {
             print("parseNotification data length less than 4")
             return -2;
         }
+        
         let sequence = Int(data[2])
-        let recvSeq = getSeq()
+        let recvSeq = generateReceiveSequence()
+        
+        
         if sequence != recvSeq {
             print("wrong recvSEQ=\(sequence), appSEQ=\(recvSeq)")
-            recvSequence = sequence - 1
-            sendSequence = sequence
-            //resetSeq()
-//            return -3
+            return -3
         }
         
         let type = Int(data[0])
@@ -521,9 +703,8 @@ public final class BluFiMangager: NSObject {
                 print("Error decrypt data")
             }
         }
-        // var totleLen = 0
+
         if frameCtrlData.hasFrag() {
-            // totleLen = Int(dataBytes[0] | (dataBytes[1] << 8))
             dataOffset = 2
         } else {
             dataOffset = 0
@@ -544,7 +725,7 @@ public final class BluFiMangager: NSObject {
             }
         }
         
-
+        
         var notificationData = dataBytes
         if dataOffset > 0 {
             notificationData = Array(dataBytes[dataOffset...])
@@ -554,5 +735,6 @@ public final class BluFiMangager: NSObject {
         return frameCtrlData.hasFrag() ? 1 : 0
     }
 }
+
 
 
