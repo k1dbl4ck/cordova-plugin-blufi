@@ -184,7 +184,6 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
             try {
                 currentDevice.put("name", device.getName());
                 currentDevice.put("address", device.getAddress());
-                currentDevice.put("type", device.getType());
                 foundDevices.put(currentDevice);
             } catch (Exception e) {
                 Log.e(TAG, e.toString());
@@ -345,12 +344,13 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
                         onGattConnected();
                         try {
                             JSONObject result = new JSONObject();
+                            result.put("message", "Connected");
                             result.put("connected", true);
                             result.put( "address", devAddr);
-                            result.put( "code", status);
+                            result.put( "error", "");
                             jsResponse.send(result, false);
                         } catch (Exception e) {
-                            jsResponse.send("Connect error", true);
+                            jsResponse.send("General error: "+e.toString(), true);
                         }
                         break;
                     case BluetoothProfile.STATE_DISCONNECTED:
@@ -358,12 +358,13 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
                         onGattDisconnected();
                         try {
                             JSONObject result = new JSONObject();
+                            result.put("message", "Device disconnected");
                             result.put("connected", false);
                             result.put( "address", devAddr);
-                            result.put( "code", status);
+                            result.put( "error", "");
                             jsResponse.send(result, false);
                         } catch (Exception e) {
-                            jsResponse.send("Disconnect error", true);
+                            jsResponse.send("General error: "+e.toString(), true);
                         }
                         break;
                 }
@@ -372,12 +373,13 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
                 onGattDisconnected();
                 try {
                     JSONObject result = new JSONObject();
+                    result.put("message", "Device disconnected");
                     result.put("connected", false);
                     result.put( "address", devAddr);
-                    result.put( "code", status);
+                    result.put( "error", status);
                     jsResponse.send(result, false);
                 } catch (Exception e) {
-                    jsResponse.send(String.format("Disconnect %s, connection error code %d", devAddr, status),false);
+                    jsResponse.send("General error: "+e.toString(), true);
                 }
             }
         }
@@ -466,10 +468,26 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
         public void onNegotiateSecurityResult(BlufiClient client, int status) {
             switch (status) {
                 case STATUS_SUCCESS:
-                    jsResponse.send("Negotiate security complete", false);
+                    try {
+                        JSONObject result = new JSONObject();
+                        result.put("message", "Security negotiation complete");
+                        result.put( "error", "");
+                        result.put("complete", true);
+                        jsResponse.send(result, false);
+                    } catch (Exception e) {
+                        jsResponse.send("General error: "+e.toString(), true);
+                    }
                     break;
                 default:
-                    jsResponse.send("Negotiate security failed", true);
+                    try {
+                        JSONObject result = new JSONObject();
+                        result.put("message", "Security negotiation failed");
+                        result.put( "error", status);
+                        result.put("complete", false);
+                        jsResponse.send(result, true);
+                    } catch (Exception e) {
+                        jsResponse.send("General error: "+e.toString(), true);
+                    }
                     break;
             }
 
@@ -479,10 +497,25 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
         public void onConfigureResult(BlufiClient client, int status) {
             switch (status) {
                 case STATUS_SUCCESS:
-                    jsResponse.send("Post configure params complete", false);
-                    break;
+                    try {
+                        JSONObject result = new JSONObject();
+                        result.put("message", "Configuration complete");
+                        result.put( "error", "");
+                        result.put("complete", true);
+                        jsResponse.send(result, false);
+                    } catch (Exception e) {
+                        jsResponse.send("General error: "+e.toString(), true);
+                    }                    break;
                 default:
-                    jsResponse.send("Post configure params failed", true);
+                    try {
+                        JSONObject result = new JSONObject();
+                        result.put("message", "Configuration failed");
+                        result.put( "error", status);
+                        result.put("complete", false);
+                        jsResponse.send(result, true);
+                    } catch (Exception e) {
+                        jsResponse.send("General error: "+e.toString(), true);
+                    }
                     break;
             }
 
@@ -491,28 +524,36 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
         @Override
         public void onDeviceStatusResponse(BlufiClient client, int status, BlufiStatusResponse response) {
             Log.i(TAG, "Device Status Response : " + Integer.toString(status));
+            Log.i(TAG, "Device Response : " + response.generateValidInfo());
+
             switch (status) {
                 case STATUS_SUCCESS:
                     try {
                         JSONObject result = new JSONObject();
                         result.put("opMode", response.getOpMode());
-                        result.put("softAP_Channel", response.getSoftAPChannel());
-                        result.put("softAP_ConnectionCount", response.getSoftAPConnectionCount());
-                        result.put("softAP_MaxConnectionCount", response.getSoftAPMaxConnectionCount());
-                        result.put("softAP_Password", response.getSoftAPPassword());
-                        result.put("softAP_Security", response.getSoftAPSecurity());
-                        result.put("softAP_SSID", response.getSoftAPSSID());
-                        result.put("sta_BSSID", response.getStaBSSID());
-                        result.put("sta_ConnectionStatus", response.getStaConnectionStatus());
-                        result.put("sta_Password", response.getStaPassword());
-                        result.put("sta_SSID", response.getStaSSID());
+                        result.put("stationState", response.getStaConnectionStatus() == 0 ? "Connected" : "Disconnected");
+                        result.put("softAPState", response.getSoftAPConnectionCount());
+                        result.put("softAPSSID", response.getSoftAPSSID());
+                        result.put("error", "");
+                        result.put("message", "Get status successful");
                         jsResponse.send(result, false);
                     } catch (Exception e) {
-                        jsResponse.send("Device status response error", true);
+                        jsResponse.send("General error: ", true);
                     }
                     break;
                 default:
-                    jsResponse.send("Device status response error", true);
+                    try {
+                        JSONObject result = new JSONObject();
+                        result.put("opMode", response.getOpMode());
+                        result.put("stationState", response.getStaConnectionStatus() == 0 ? "Connected" : "Disconnected");
+                        result.put("softAPState", response.getSoftAPConnectionCount());
+                        result.put("softAPSSID", response.getSoftAPSSID());
+                        result.put("error", status);
+                        result.put("message", "Get status failed");
+                        jsResponse.send(result, true);
+                    } catch (Exception e) {
+                        jsResponse.send("General error:"+e.toString(), true);
+                    }
                     break;
             }
 
@@ -532,12 +573,17 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
                         }
                         jsResponse.send(response, false);
                     } catch (Exception e) {
-                        jsResponse.send("Device scan result error", true);
+                        jsResponse.send("General error:"+e.toString(), true);
                     }
 
                     break;
                 default:
-                    jsResponse.send("Device scan result error", true);
+                    try {
+                        JSONArray response = new JSONArray();
+                        jsResponse.send(response, true);
+                    } catch (Exception e) {
+                        jsResponse.send("General error:"+e.toString(), true);
+                    }
                     break;
             }
 
@@ -548,18 +594,28 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
             switch (status) {
                 case STATUS_SUCCESS:
                     try {
-                        JSONObject version = new JSONObject();
-                        version.put("version", response.getVersionString());
-                        jsResponse.send(version, false);
+                        JSONObject result = new JSONObject();
+                        result.put("message", "Get version successful");
+                        result.put( "error", "");
+                        result.put("version", response.getVersionString());
+
+                        jsResponse.send(result, false);
                     } catch (Exception e) {
-                        jsResponse.send("Device version result error", true);
+                        jsResponse.send("General error: "+e.toString(), true);
                     }
                     break;
                 default:
-                    jsResponse.send("Device version error", true);
+                    try {
+                        JSONObject result = new JSONObject();
+                        result.put("message", "Get version failed");
+                        result.put( "error", status);
+                        result.put("version", "");
+                        jsResponse.send(result, true);
+                    } catch (Exception e) {
+                        jsResponse.send("General error: "+e.toString(), true);
+                    }
                     break;
             }
-
         }
 
         @Override
@@ -568,10 +624,26 @@ public class Gatt extends CordovaPlugin implements SearchResultEvent {
             String format = "Post data %s %s";
             switch (status) {
                 case STATUS_SUCCESS:
-                    jsResponse.send(String.format(format, dataStr, "complete"), false);
+                    try {
+                        JSONObject result = new JSONObject();
+                        result.put("message", "Send custom data complete");
+                        result.put( "error", "");
+                        result.put("complete", true);
+                        jsResponse.send(result, false);
+                    } catch (Exception e) {
+                        jsResponse.send("General error: "+e.toString(), true);
+                    }
                     break;
                 default:
-                    jsResponse.send(String.format(format, dataStr, "failed"), true);
+                    try {
+                        JSONObject result = new JSONObject();
+                        result.put("message", "Send custom data failed");
+                        result.put( "error", status);
+                        result.put("complete", false);
+                        jsResponse.send(result, true);
+                    } catch (Exception e) {
+                        jsResponse.send("General error: "+e.toString(), true);
+                    }
                     break;
             }
         }
