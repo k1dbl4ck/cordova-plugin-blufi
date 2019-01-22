@@ -67,6 +67,7 @@ The following API calls are available on the above namespace:
 | negotiate  |          Negotiates a secure connection with the connected BluFi device           |
 | configure  | Configures the WiFi mode and associated credentials of the connected BluFi device |
 | send       |            Send a string of custom data to the connected BluFi device             |
+| scan       |           Scans for available WiFi networks from connected BluFi device           |
 | version    |           Returns the version as reported by the connected BluFi device           |
 | status     |             Returns the current status of the connected BluFi device              |
 
@@ -119,6 +120,36 @@ Response:
   "error": "",
   "message": "Connected"
 }
+```
+
+### Scanning for WiFi networks from connected device
+
+Once you are connected to the device, you can scan for available WiFi networks as follows:
+
+```js
+let blufi = window.cordova.plugins.blufi;
+
+blufi.scan(
+  response => { ... },
+  error => { ... }
+);
+```
+
+Response:
+
+```json
+[
+  {
+    "ssid": "...",
+    "rssi": "..."
+  }
+]
+```
+
+Error:
+
+```json
+[]
 ```
 
 ### Negotating security with connected device
@@ -253,7 +284,7 @@ Response:
   "softAPState": "NUMBER_OF_DEVICES_CONNECTED",
   "softAPSSID": "SSID_OF_SOFT_AP",
   "error": "",
-  "message": "Get status sucessful"
+  "message": "Get status successful"
 }
 ```
 
